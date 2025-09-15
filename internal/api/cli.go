@@ -28,10 +28,68 @@ type HttpClient struct {
 	transport *http.Transport
 }
 
+type Option func(*HttpClientConfig)
+
+func WithTimeout(timeout time.Duration) Option {
+	return func(config *HttpClientConfig) {
+		config.Timeout = timeout
+	}
+}
+
+func WithDialTimeout(dialTimeout time.Duration) Option {
+	return func(config *HttpClientConfig) {
+		config.DialTimeout = dialTimeout
+	}
+}
+
+func WithTLSHandshakeTimeout(tlsHandshakeTimeout time.Duration) Option {
+	return func(config *HttpClientConfig) {
+		config.TLSHandshakeTimeout = tlsHandshakeTimeout
+	}
+}
+
+func WithResponseHeaderTimeout(responseHeaderTimeout time.Duration) Option {
+	return func(config *HttpClientConfig) {
+		config.ResponseHeaderTimeout = responseHeaderTimeout
+	}
+}
+
+func WithIdleConnTimeout(idleConnTimeout time.Duration) Option {
+	return func(config *HttpClientConfig) {
+		config.IdleConnTimeout = idleConnTimeout
+	}
+}
+
+func WithMaxIdleConns(maxIdleConns int) Option {
+	return func(config *HttpClientConfig) {
+		config.MaxIdleConns = maxIdleConns
+	}
+}
+
+func WithMaxIdleConnsPerHost(maxIdleConnsPerHost int) Option {
+	return func(config *HttpClientConfig) {
+		config.MaxIdleConnsPerHost = maxIdleConnsPerHost
+	}
+}
+
+func WithDisableKeepAlives(disableKeepAlives bool) Option {
+	return func(config *HttpClientConfig) {
+		config.DisableKeepAlives = disableKeepAlives
+	}
+}
+
+func NewHttpClientWithOptions(opts ...Option) *HttpClient {
+	config := HttpClientConfig{}
+	for _, opt := range opts {
+		opt(&config)
+	}
+	return NewHttpClient(config)
+}
+
 // NewHttpClient 创建新的自定义HTTP客户端
 func NewHttpClient(config HttpClientConfig) *HttpClient {
 	// 创建自定义Transport
-	setDefaultHttpClientConfig(&config)
+	defaultHttpClientConfig(&config)
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   config.DialTimeout,
@@ -61,8 +119,8 @@ func NewHttpClient(config HttpClientConfig) *HttpClient {
 	}
 }
 
-// DefaultHttpClientConfig 返回默认配置
-func setDefaultHttpClientConfig(config *HttpClientConfig) {
+// defaultHttpClientConfig 返回默认配置
+func defaultHttpClientConfig(config *HttpClientConfig) {
 	if config.Timeout == 0 {
 		config.Timeout = 5 * time.Second
 	}
@@ -91,6 +149,15 @@ func (c *HttpClient) DoRequestWithContext(ctx context.Context, method, url strin
 	// 设置请求头
 	for key, value := range headers {
 		req.Header.Set(key, value)
+	}
+	// 如果是POST请求且body不为空，确保Content-Type已设置
+	if method == http.MethodPost && body != nil {
+		if headers == nil {
+			headers = make(map[string]string)
+		}
+		if _, exists := headers["Content-Type"]; !exists {
+			headers["Content-Type"] = "application/json"
+		}
 	}
 
 	// 发送请求
@@ -123,28 +190,21 @@ func (c *HttpClient) GetWithContext(ctx context.Context, url string, headers map
 
 // PostWithContext 执行POST请求
 func (c *HttpClient) PostWithContext(ctx context.Context, url string, body io.Reader, headers map[string]string) ([]byte, int, error) {
-	if headers == nil {
-		headers = make(map[string]string)
-	}
-	if _, exists := headers["Content-Type"]; !exists {
-		headers["Content-Type"] = "application/json"
-	}
 	return c.DoRequestWithContext(ctx, http.MethodPost, url, body, headers)
+}
+
+// Get 执行GET请求
+func (c *HttpClient) Get(url string, headers map[string]string) ([]byte, int, error) {
+	return c.DoRequestWithContext(context.Background(), http.MethodGet, url, nil, headers)
+}
+
+// Post 执行POST请求
+func (c *HttpClient) Post(url string, body io.Reader, headers map[string]string) ([]byte, int, error) {
+	return c.DoRequestWithContext(context.Background(), http.MethodPost, url, body, headers)
 }
 
 // Close 关闭客户端，释放资源
 func (c *HttpClient) Close() {
 	// 关闭空闲连接
 	c.transport.CloseIdleConnections()
-}
-
-// Get 执行GET请求
-func (c *HttpClient) Get(url string, headers map[string]string) ([]byte, int, error) {
-	return c.GetWithContext(context.Background(), url, headers)
-}
-
-// Post 执行POST请求
-func (c *HttpClient) Post(url string, body io.Reader, headers map[string]string) ([]byte, int, error) {
-	return c.PostWithContext(context.Background(), url, body, headers)
-
 }
